@@ -13,6 +13,7 @@ import requests
 # http://geocode-maps.yandex.ru/1.x/?apikey=40d1649f-0493-4b70-98ba-98533de7710b&geocode=Москва, ул. Ак. Королева, 12&format=json
 
 API_KEY = '40d1649f-0493-4b70-98ba-98533de7710b'
+pygame.init()
 
 # Функция сборки запроса для геокодера
 def geocode(address):
@@ -46,8 +47,7 @@ def get_coordinates(address):
     toponym_coodrinates = toponym["Point"]["pos"]
     # Широта, долгота:
     toponym_longitude, toponym_lattitude = toponym_coodrinates.split(" ")
-    ll = ",".join([toponym_longitude, toponym_lattitude])
-    return ll
+    return [float(toponym_longitude), float(toponym_lattitude)]
 
 
 # Получаем параметры объекта для рисования карты вокруг него.
@@ -71,49 +71,63 @@ def get_ll_span(address):
     return ll, [r, l]
 
 
-def show_map(ll_spn=None, map_type="map", add_params=None):
-    if ll_spn:
-        map_request = f"http://static-maps.yandex.ru/1.x/?{ll_spn}&l={map_type}"
-    else:
-        map_request = f"http://static-maps.yandex.ru/1.x/?l={map_type}"
-
-    if add_params:
-        map_request += "&" + add_params
-    response = requests.get(map_request)
-
-    if not response:
-        pass
-
-    # Запишем полученное изображение в файл.
+def show_map(toponym_to_find, spn, map_type="map", add_params=None):
     map_file = "map.png"
-    try:
-        with open(map_file, "wb") as file:
-            file.write(response.content)
-    except IOError as ex:
-        print("Ошибка записи временного файла:", ex)
-        sys.exit(2)
+    running = True
+    shift = [0, 0]
+    while running:
+        ll = get_coordinates(toponym_to_find)
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_w:
+                    spn[0] += 0.001
+                    spn[1] += 0.001
+                elif event.key == pygame.K_s:
+                    spn[0] = max(0.0001, spn[0] - 0.001)
+                    spn[1] = max(0.0001, spn[1] - 0.001)
+                elif event.key == pygame.K_LEFT:
+                    shift[0] -= 0.0001
+                elif event.key == pygame.K_RIGHT:
+                    shift[0] += 0.0001
+                elif event.key == pygame.K_UP:
+                    shift[1] += 0.0001
+                elif event.key == pygame.K_DOWN:
+                    shift[1] -= 0.0001
+        ll_spn = f"ll={','.join([str(ll[0] + shift[0]), str(ll[1] + shift[1])])}&spn={spn[0]},{spn[1]}"
+        if ll_spn:
+            map_request = f"http://static-maps.yandex.ru/1.x/?{ll_spn}&l={map_type}"
+        else:
+            map_request = f"http://static-maps.yandex.ru/1.x/?l={map_type}"
 
-    # Инициализируем pygame
-    pygame.init()
-    screen = pygame.display.set_mode((600, 450))
-    # Рисуем картинку, загружаемую из только что созданного файла.
-    screen.blit(pygame.image.load(map_file), (0, 0))
-    # Переключаем экран и ждем закрытия окна.
-    pygame.display.flip()
-    while pygame.event.wait().type != pygame.QUIT:
-        pass
+        if add_params:
+            map_request += "&" + add_params
+        response = requests.get(map_request)
+
+        if not response:
+            pass
+
+        try:
+            with open(map_file, "wb") as file:
+                file.write(response.content)
+        except IOError as ex:
+            print("Ошибка записи временного файла:", ex)
+            sys.exit(2)
+
+        screen = pygame.display.set_mode((600, 450))
+        screen.blit(pygame.image.load(map_file), (0, 0))
+        pygame.display.flip()
+
     pygame.quit()
-    # Удаляем за собой файл с изображением.
     os.remove(map_file)
 
 
 def main():
     toponym_to_find = " ".join(sys.argv[1:-2])
-    spn = sys.argv[-2:]
+    spn = list(map(float, sys.argv[-2:]))
     if toponym_to_find:
-        ll = get_coordinates(toponym_to_find)
-        ll_spn = f"ll={ll}&spn={spn[0]},{spn[1]}"
-        show_map(ll_spn, "map")
+        show_map(toponym_to_find, spn, "map")
 
 
 if __name__ == "__main__":
